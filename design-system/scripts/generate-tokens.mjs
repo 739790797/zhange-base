@@ -2,6 +2,13 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+const args = process.argv.slice(2);
+if (args.length > 1 || args.some((arg) => arg !== "--check")) {
+  console.error("Usage: node design-system/scripts/generate-tokens.mjs [--check]");
+  process.exit(2);
+}
+const checkOnly = args.includes("--check");
+
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const sourcePath = path.join(packageRoot, "tokens", "tarkov.json");
 const tokens = JSON.parse(await readFile(sourcePath, "utf8"));
@@ -10,7 +17,11 @@ function kebab(value) {
   return value.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
 }
 
-const cssLines = ["/* Generated from tokens/tarkov.json. Do not edit directly. */", ".zhange-theme-tarkov {", "  color-scheme: dark;"];
+const cssLines = [
+  "/* Generated from tokens/tarkov.json. Do not edit directly. */",
+  ".zhange-theme-tarkov {",
+  "  color-scheme: dark;",
+];
 for (const [group, values] of Object.entries(tokens)) {
   if (!values || typeof values !== "object" || Array.isArray(values)) {
     if (typeof values === "string") cssLines.push(`  --zhange-${kebab(group)}: ${values};`);
@@ -59,8 +70,42 @@ function declaration(value, depth = 0) {
 
 const dtsOutput = `/* Generated from tokens/tarkov.json. Do not edit directly. */\nexport declare const TARKOV_TOKENS:${declaration(tokens)};\n`;
 
-await Promise.all([
-  writeFile(path.join(packageRoot, "src", "tokens.css"), cssLines.join("\n"), "utf8"),
-  writeFile(path.join(packageRoot, "src", "tokens.js"), jsOutput, "utf8"),
-  writeFile(path.join(packageRoot, "src", "tokens.d.ts"), dtsOutput, "utf8"),
+const outputs = new Map([
+  [path.join(packageRoot, "src", "tokens.css"), cssLines.join("\n")],
+  [path.join(packageRoot, "src", "tokens.js"), jsOutput],
+  [path.join(packageRoot, "src", "tokens.d.ts"), dtsOutput],
 ]);
+
+if (checkOnly) {
+  const staleFiles = [];
+  for (const [filePath, expected] of outputs) {
+    let actual;
+    try {
+      actual = await readFile(filePath, "utf8");
+    } catch (error) {
+      if (error.code === "ENOENT") {
+        staleFiles.push(path.relative(packageRoot, filePath));
+        continue;
+      }
+      throw error;
+    }
+
+    if (actual.replace(/\r\n?/g, "\n") !== expected) {
+      staleFiles.push(path.relative(packageRoot, filePath));
+    }
+  }
+
+  if (staleFiles.length > 0) {
+    console.error("Generated token artifacts are missing or stale:");
+    for (const filePath of staleFiles) console.error(`- ${filePath}`);
+    console.error("Run node design-system/scripts/generate-tokens.mjs to update them.");
+    process.exitCode = 1;
+  } else {
+    console.log("Generated token artifacts are up to date.");
+  }
+} else {
+  await Promise.all(
+    [...outputs].map(([filePath, content]) => writeFile(filePath, content, "utf8")),
+  );
+  console.log("Generated token artifacts from design-system/tokens/tarkov.json.");
+}

@@ -33,13 +33,21 @@
 node design-system/scripts/generate-tokens.mjs
 ```
 
-随后检查生成文件，并在 App、Stats 两端分别构建验证。消费者直接声明 `fonts.css` 使用的 Fontsource 依赖；本仓库不是 npm 包，不通过 npm registry 向消费者传递依赖。
+该命令会更新 `design-system/src/tokens.css`、`tokens.js` 和 `tokens.d.ts`。提交前运行只读检查，确认三份产物与令牌源一致：
+
+```bash
+node design-system/scripts/generate-tokens.mjs --check
+```
+
+检查会在产物缺失或过期时以非零状态退出，不会修改文件；仓库 CI 也会运行此检查。令牌或公共样式变更后，还需在 App、Stats 两端分别构建验证。消费者直接声明 `fonts.css` 使用的 Fontsource 依赖；本仓库不是 npm 包，不通过 npm registry 向消费者传递依赖。
+
+文本格式使用仓库根 `.editorconfig` 与 `.prettierrc.json`；令牌生成产物由生成器管理，不使用 Prettier 重写。CI 检查命令为 `npx --yes prettier@3.6.2 --check . --ignore-path .prettierignore`。
 
 ## 消费与更新
 
 App 和 Stats 通过 Git 子模块检出本仓库，子模块指针固定它们使用的提交。开发者首次克隆时使用 `git clone --recurse-submodules`；已有检出可运行 `git submodule update --init --recursive`。CI 的前端构建也必须初始化子模块。
 
-消费者通过 `@zhange-base` 源码别名访问 `design-system/`。修改公共代码时，先在本仓库提交并推送，再分别在 App 和 Stats 更新子模块指针；两端都通过对应构建后，更新才算完成。不要在消费者仓库复制或本地覆盖基础仓源码。
+消费者通过 `@zhange-base/src/index.css` 导入组合样式；需要 JavaScript 令牌时从 `@zhange-base/src/tokens.js` 导入。当前 `design-system/src/` 中这两个文件及其声明构成消费者公开的源码入口。修改公共代码时，先在本仓库提交并推送，再分别在 App 和 Stats 更新子模块指针；两端都通过对应构建后，更新才算完成。不要在消费者仓库复制或本地覆盖基础仓源码。
 
 ## 增加公共模块
 
